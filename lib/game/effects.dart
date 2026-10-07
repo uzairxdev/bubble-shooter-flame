@@ -4,6 +4,7 @@ import 'package:flame/components.dart';
 import 'package:flutter/material.dart';
 
 import 'bubble.dart';
+import 'grid.dart';
 
 /// Ring + spark burst shown when bubbles pop.
 class PopEffect extends Component {
@@ -79,7 +80,9 @@ class FallingBubble extends Bubble {
     _velocity.y += 1500 * dt;
     position += _velocity * dt;
     opacity = (opacity - dt * 0.85).clamp(0.0, 1.0);
-    if (position.y > 880 || opacity <= 0) removeFromParent();
+    if (position.y > GameConfig.height + 80 || opacity <= 0) {
+      removeFromParent();
+    }
   }
 }
 

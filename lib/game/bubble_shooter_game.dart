@@ -6,6 +6,7 @@ import 'package:flame/game.dart';
 import 'package:flame/text.dart';
 import 'package:flutter/material.dart';
 
+import '../viewmodels/game_session_viewmodel.dart';
 import 'aim_guide.dart';
 import 'bubble.dart';
 import 'effects.dart';
@@ -16,24 +17,20 @@ import 'save_data.dart';
 import 'sfx.dart';
 import 'visuals.dart';
 
-/// Which rule set a game session runs under.
-enum GameMode { endless, daily }
-
 /// The full bubble-shooter game: aiming, shooting, snapping to the hex grid,
 /// match-3 popping, dropping detached clusters, row pushes, scoring, levels,
 /// pause / game-over / level-complete flow.
+///
+/// Rendering is responsive: the world is always 420 logical units wide and
+/// the camera zooms so the width fills the screen exactly; the visible
+/// height adapts to the device aspect ratio ([onGameResize]).
 class BubbleShooterGame extends FlameGame with DragCallbacks, TapCallbacks {
   BubbleShooterGame({
+    required this.vm,
     required this.startLevel,
     this.mode = GameMode.endless,
     DateTime? dailyDate,
-  })  : dailyDate = dailyDate ?? DateTime.now(),
-        super(
-          camera: CameraComponent.withFixedResolution(
-            width: GameConfig.width,
-            height: GameConfig.height,
-          ),
-        );
+  }) : dailyDate = dailyDate ?? DateTime.now();
 
   /// First level to load (endless mode).
   final int startLevel;
@@ -52,7 +49,8 @@ class BubbleShooterGame extends FlameGame with DragCallbacks, TapCallbacks {
   int get dailySeed =>
       dailyDate.year * 10000 + dailyDate.month * 100 + dailyDate.day;
 
-  final Vector2 shooterPos = Vector2(GameConfig.width / 2, GameConfig.shooterY);
+  /// Shooter anchor, recomputed from the real screen size in [_updateLayout].
+  late Vector2 shooterPos;
 
   List<BubbleRow> rows = [];
   Bubble? currentBubble;
@@ -63,10 +61,13 @@ class BubbleShooterGame extends FlameGame with DragCallbacks, TapCallbacks {
   late AimGuide aimGuide;
   late Mascot mascot;
   late DangerLine _dangerLine;
+  late Background _background;
+  late ShooterBase _shooterBase;
+  late TextComponent _nextLabel;
+  bool _ready = false;
 
   // ---- engagement: combo multiplier ----
   int combo = 0;
-  final ValueNotifier<int> comboNotifier = ValueNotifier(0);
 
   /// Score multiplier from the current combo (x1 below 2, capped at x8).
   int get multiplier => combo < 2 ? 1 : min(combo, 8);
@@ -75,7 +76,6 @@ class BubbleShooterGame extends FlameGame with DragCallbacks, TapCallbacks {
   double _shakeT = 0;
   double _shakeDur = 1;
   double _shakeMag = 0;
-  late Vector2 _camBase;
 
   /// Kick the camera. [magnitude] in logical pixels.
   void shake(double magnitude, [double duration = 0.28]) {
@@ -93,10 +93,8 @@ class BubbleShooterGame extends FlameGame with DragCallbacks, TapCallbacks {
   bool isGameOver = false;
   bool isLevelComplete = false;
 
-  final ValueNotifier<int> scoreNotifier = ValueNotifier(0);
-  final ValueNotifier<int> levelNotifier = ValueNotifier(1);
-  final ValueNotifier<int> shotsLeftNotifier =
-      ValueNotifier(GameConfig.shotsPerRow);
+  /// UI-facing state (MVVM): the game writes, Flutter widgets observe.
+  final GameSessionViewModel vm;
 
   @override
   Color backgroundColor() => const Color(0xFF0A0F33);
@@ -104,35 +102,88 @@ class BubbleShooterGame extends FlameGame with DragCallbacks, TapCallbacks {
   @override
   Future<void> onLoad() async {
     await super.onLoad();
-    _camBase = camera.viewfinder.position.clone();
     final bgImage = await images.load('bg.png');
-    world.add(Background(bgImage));
+    _background = Background(bgImage);
+    world.add(_background);
     _dangerLine = DangerLine();
     world.add(_dangerLine);
-    world.add(ShooterBase(position: shooterPos.clone()));
+    _shooterBase = ShooterBase(position: Vector2.zero());
+    world.add(_shooterBase);
     mascot = Mascot(
       sprite: Sprite(await images.load('mascot.png')),
-      home: Vector2(58, 702),
+      home: Vector2.zero(),
     );
     world.add(mascot);
-    world.add(
-      TextComponent(
-        text: 'NEXT',
-        textRenderer: TextPaint(
-          style: const TextStyle(
-            color: Colors.white70,
-            fontSize: 11,
-            fontWeight: FontWeight.bold,
-            letterSpacing: 2,
-          ),
+    _nextLabel = TextComponent(
+      text: 'NEXT',
+      textRenderer: TextPaint(
+        style: const TextStyle(
+          color: Colors.white70,
+          fontSize: 11,
+          fontWeight: FontWeight.bold,
+          letterSpacing: 2,
         ),
-        position: shooterPos + Vector2(66, 30),
-        anchor: Anchor.center,
       ),
+      anchor: Anchor.center,
     );
-    aimGuide = AimGuide(origin: shooterPos.clone());
+    world.add(_nextLabel);
+    aimGuide = AimGuide(origin: Vector2.zero());
     world.add(aimGuide);
+    _ready = true;
+    _updateLayout(size);
     loadLevel(startLevel);
+  }
+
+  // ---------------- responsive layout ----------------
+
+  /// Recomputes the world layout from the real canvas size. The world is
+  /// always [GameConfig.designWidth] logical units wide; the camera zooms
+  /// so the width fills the screen exactly and the visible height adapts
+  /// to the device's aspect ratio. Called on every resize (rotation,
+  /// foldables, multi-window).
+  @override
+  void onGameResize(Vector2 canvasSize) {
+    super.onGameResize(canvasSize);
+    _updateLayout(canvasSize);
+  }
+
+  void _updateLayout(Vector2 canvasSize) {
+    if (canvasSize.x <= 0 || canvasSize.y <= 0) return;
+
+    // Camera: top-left anchored, width-filling zoom. This replaces the old
+    // fixed-resolution camera, which mis-framed the world on some screens.
+    final zoom = canvasSize.x / GameConfig.designWidth;
+    camera.viewfinder
+      ..anchor = Anchor.topLeft
+      ..position = Vector2.zero()
+      ..zoom = zoom;
+
+    GameConfig.height = canvasSize.y / zoom;
+    GameConfig.gridTopY = 110;
+    GameConfig.dangerY = GameConfig.height - 210;
+    GameConfig.shooterY = GameConfig.height - 110;
+    shooterPos = Vector2(GameConfig.designWidth / 2, GameConfig.shooterY);
+
+    if (!_ready) return; // components don't exist yet; onLoad will finish it
+
+    _background.size = Vector2(GameConfig.designWidth, GameConfig.height);
+    _shooterBase.position = shooterPos.clone();
+    _nextLabel.position = shooterPos + Vector2(66, 30);
+    mascot.setHome(Vector2(58, GameConfig.height - 98));
+    aimGuide.origin = shooterPos.clone();
+    if (currentBubble != null) {
+      currentBubble!.position = shooterPos.clone();
+    }
+    if (nextBubble != null) {
+      nextBubble!.position = shooterPos + Vector2(66, 6);
+    }
+    // Re-layout grid bubbles (e.g. after rotation).
+    for (var r = 0; r < rows.length; r++) {
+      for (var c = 0; c < rows[r].cells.length; c++) {
+        final b = rows[r].cells[c];
+        if (b != null) b.position = GridLayout.cellCenter(r, c, rows);
+      }
+    }
   }
 
   // ---------------- level management ----------------
@@ -142,9 +193,9 @@ class BubbleShooterGame extends FlameGame with DragCallbacks, TapCallbacks {
     _scoreAtLevelStart = score;
     _shotsFired = 0;
     combo = 0;
-    comboNotifier.value = 0;
+    vm.combo.value = 0;
     _shakeT = 0;
-    camera.viewfinder.position.setFrom(_camBase);
+    camera.viewfinder.position.setValues(0, 0);
     isGameOver = false;
     isLevelComplete = false;
     flyingBubble = null;
@@ -183,9 +234,9 @@ class BubbleShooterGame extends FlameGame with DragCallbacks, TapCallbacks {
     world.add(currentBubble!);
     world.add(nextBubble!);
 
-    scoreNotifier.value = score;
-    levelNotifier.value = newLevel;
-    shotsLeftNotifier.value = GameConfig.shotsPerRow - _shotsFired;
+    vm.score.value = score;
+    vm.level.value = newLevel;
+    vm.shotsLeft.value = GameConfig.shotsPerRow - _shotsFired;
 
     for (final o in ['pauseMenu', 'gameOver', 'levelComplete']) {
       overlays.remove(o);
@@ -359,13 +410,12 @@ class BubbleShooterGame extends FlameGame with DragCallbacks, TapCallbacks {
     if (_shakeT > 0) {
       _shakeT -= dt;
       final k = _shakeMag * (_shakeT / _shakeDur).clamp(0.0, 1.0);
-      camera.viewfinder.position = _camBase +
-          Vector2(
-            (_rng.nextDouble() * 2 - 1) * k,
-            (_rng.nextDouble() * 2 - 1) * k,
-          );
+      camera.viewfinder.position.setValues(
+        (_rng.nextDouble() * 2 - 1) * k,
+        (_rng.nextDouble() * 2 - 1) * k,
+      );
     } else {
-      camera.viewfinder.position.setFrom(_camBase);
+      camera.viewfinder.position.setValues(0, 0);
     }
   }
 
@@ -519,13 +569,13 @@ class BubbleShooterGame extends FlameGame with DragCallbacks, TapCallbacks {
     if (gained > 0) {
       // Combo: consecutive popping shots raise the score multiplier.
       combo++;
-      comboNotifier.value = combo;
+      vm.combo.value = combo;
       if (combo > SaveData.bestCombo) SaveData.saveBestCombo(combo);
 
       final mult = multiplier;
       final total = gained * mult;
       score += total;
-      scoreNotifier.value = score;
+      vm.score.value = score;
       world.add(ScorePopup(
         mult > 1 ? '+$total  x$mult' : '+$total',
         GridLayout.cellCenter(row, col, rows),
@@ -538,7 +588,7 @@ class BubbleShooterGame extends FlameGame with DragCallbacks, TapCallbacks {
     } else {
       // A shot that pops nothing breaks the combo.
       combo = 0;
-      comboNotifier.value = 0;
+      vm.combo.value = 0;
     }
 
     // 3. Win check.
@@ -554,7 +604,7 @@ class BubbleShooterGame extends FlameGame with DragCallbacks, TapCallbacks {
       _addRow();
       if (isGameOver) return;
     }
-    shotsLeftNotifier.value = GameConfig.shotsPerRow - _shotsFired;
+    vm.shotsLeft.value = GameConfig.shotsPerRow - _shotsFired;
     _reloadShooter();
   }
 
@@ -635,7 +685,7 @@ class BubbleShooterGame extends FlameGame with DragCallbacks, TapCallbacks {
   void _winLevel() {
     isLevelComplete = true;
     score += 100 * level;
-    scoreNotifier.value = score;
+    vm.score.value = score;
     mascot.celebrate(200);
     Sfx.play('win.wav');
     Sfx.medium();

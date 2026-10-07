@@ -56,9 +56,20 @@ flutter build appbundle --release
 
 ```
 lib/
-  main.dart                  # menu / level select / settings / game screen + HUD overlays
-  game/
-    bubble_shooter_game.dart # game loop + modes, combo, shake, threat, sounds, saves
+  main.dart                  # bootstrap: persistence + provider tree (MVVM)
+  viewmodels/
+    game_session_viewmodel.dart # per-session UI state (score, combo, level…)
+    menu_viewmodel.dart         # unlocks, stars, records
+    settings_viewmodel.dart     # settings toggles
+  views/
+    menu_view.dart           # main menu
+    level_select_view.dart   # level grid with unlocks/stars/bests
+    settings_view.dart       # settings screen
+    game_view.dart           # game screen: GameWidget + HUD + overlays
+  widgets/
+    game_widgets.dart        # StatPill, MenuButton, OverlayCard, OverlayButton
+  game/                      # Flame engine (the view for the game world)
+    bubble_shooter_game.dart # game loop + responsive camera + modes, combo, shake
     bubble.dart              # glossy procedural Bubble + colorblind-safe palette
     grid.dart                # hex-grid math, flood fill, floating-cluster detection
     level_generator.dart     # deterministic per-level + date-seeded daily boards
@@ -83,7 +94,7 @@ store/                       # Play Store listing pack
   screenshots-HOWTO.md       # how to capture real gameplay screenshots
 android/                     # Android runner (applicationId: com.uzairxdev.bubblepop)
 test/
-  grid_test.dart             # 8 unit tests (grid math, flood fill, generation)
+  grid_test.dart             # 10 unit tests (grid math, flood fill, daily seeds)
 ```
 
 ## Publishing checklist

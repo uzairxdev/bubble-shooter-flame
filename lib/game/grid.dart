@@ -2,14 +2,29 @@ import 'package:flame/components.dart';
 
 import 'bubble.dart';
 
-/// Global tuning for the board. The world is a fixed 420x800 portrait stage.
+/// Global tuning for the board.
+///
+/// The world is a fixed 420 logical units wide; the camera zooms so the
+/// width always fills the screen exactly, and the visible height adapts to
+/// the device's aspect ratio. Mutable fields are recomputed by the game in
+/// [onGameResize]; defaults match the classic 420x800 stage (used by tests).
 class GameConfig {
-  static const double width = 420;
-  static const double height = 800;
+  static const double designWidth = 420;
+  static double get width => designWidth;
+
   static const int columns = 10;
-  static const double gridTopY = 46; // center of row 0
-  static const double dangerY = 600; // bubbles crossing this line end the game
-  static const double shooterY = 700;
+
+  /// Visible world height — set from the real screen in onGameResize.
+  static double height = 800;
+
+  /// Center of row 0. Kept clear of the Flutter HUD overlaying the top.
+  static double gridTopY = 110;
+
+  /// Bubbles crossing this line end the game.
+  static double dangerY = 590;
+
+  static double shooterY = 690;
+
   static const double flySpeed = 950;
   static const int shotsPerRow = 5; // shots before a new row pushes down
 }

@@ -7,11 +7,14 @@ import 'package:flame/components.dart';
 /// celebrates level wins, and droops when the game is over.
 /// Purely decorative — she never affects gameplay.
 class Mascot extends SpriteComponent {
-  Mascot({required super.sprite, required Vector2 home})
+  Mascot({required super.sprite, required Vector2 home, double height = 190})
       : _home = home.clone(),
         super(
           position: home.clone(),
-          size: Vector2(96, 192),
+          size: Vector2(
+            height * sprite!.srcSize.x / sprite.srcSize.y,
+            height,
+          ),
           anchor: Anchor.center,
         );
 
@@ -31,6 +34,12 @@ class Mascot extends SpriteComponent {
   void sad() {
     _sad = true;
     _celebrateT = 0;
+  }
+
+  /// Moves the mascot's resting spot (used on screen resize).
+  void setHome(Vector2 home) {
+    _home.setFrom(home);
+    if (_celebrateT <= 0 && !_sad) position.setFrom(_home);
   }
 
   void reset() {
