@@ -44,7 +44,7 @@ class _GameViewState extends State<GameView> {
 
   @override
   Widget build(BuildContext context) {
-    return Provider.value(
+    return ChangeNotifierProvider.value(
       value: _vm,
       child: Scaffold(
         body: GameWidget(
