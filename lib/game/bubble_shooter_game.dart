@@ -326,9 +326,14 @@ class BubbleShooterGame extends FlameGame with DragCallbacks, TapCallbacks {
   }
 
   void _updateAim(Vector2 worldPos) {
-    var dir = worldPos - shooterPos;
-    if (dir.y > -0.18 * dir.length) return; // must aim upward
-    dir = Vector2(dir.x.clamp(-0.985, 0.985).toDouble(), dir.y).normalized();
+    final toFinger = worldPos - shooterPos;
+    if (toFinger.length < 8) return; // finger on the shooter: keep last aim
+    // Aim angle clamped into the upward cone. Clamping (instead of ignoring
+    // the drag) keeps the arrow glued to the finger: it slides along the
+    // limit instead of freezing when the drag dips toward horizontal.
+    const limit = 0.17; // ~10° margin above horizontal
+    final angle = atan2(toFinger.y, toFinger.x).clamp(-pi + limit, -limit);
+    final dir = Vector2(cos(angle), sin(angle));
     aimGuide.direction = dir;
     aimGuide.points = _computeTrajectory(dir);
   }
