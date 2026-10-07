@@ -3,10 +3,34 @@ import 'dart:math';
 import 'package:flame/components.dart';
 import 'package:flutter/material.dart';
 
+import 'save_data.dart';
+
 /// The bubble colors used in the game. Higher levels unlock more of them.
 enum BubbleColor { red, blue, green, yellow, purple, orange }
 
 extension BubbleColorStyle on BubbleColor {
+  /// Display color, swapped for a colorblind-safe palette when the
+  /// player enables it in settings.
+  Color get display {
+    if (GameSettings.colorblind.value) {
+      switch (this) {
+        case BubbleColor.red:
+          return const Color(0xFFD55E00); // vermillion
+        case BubbleColor.blue:
+          return const Color(0xFF0072B2); // blue
+        case BubbleColor.green:
+          return const Color(0xFF009E73); // bluish green
+        case BubbleColor.yellow:
+          return const Color(0xFFF0E442); // yellow
+        case BubbleColor.purple:
+          return const Color(0xFFCC79A7); // reddish purple
+        case BubbleColor.orange:
+          return const Color(0xFFE69F00); // orange
+      }
+    }
+    return color;
+  }
+
   Color get color {
     switch (this) {
       case BubbleColor.red:
@@ -49,7 +73,7 @@ class Bubble extends PositionComponent {
     final r = radius;
     final c = size.x / 2;
     final center = Offset(c, c);
-    final base = bubbleColor.color;
+    final base = bubbleColor.display;
     final hsl = HSLColor.fromColor(base);
 
     final light =

@@ -8,8 +8,15 @@ import 'grid.dart';
 /// Deterministic per level number, so retrying a level rebuilds the
 /// identical board. Higher levels get more rows and more colors.
 class LevelGenerator {
-  static List<BubbleRow> generate(int level) {
-    final rng = Random(level * 7919 + 101);
+  static List<BubbleRow> generate(int level) =>
+      _generate(level, Random(level * 7919 + 101));
+
+  /// Deterministic board from an explicit seed — used by the daily
+  /// challenge so every player gets the same board on a given day.
+  static List<BubbleRow> generateSeeded(int level, int seed) =>
+      _generate(level, Random(seed));
+
+  static List<BubbleRow> _generate(int level, Random rng) {
     final colorCount =
         (3 + level ~/ 2).clamp(3, BubbleColor.values.length).toInt();
     final palette =

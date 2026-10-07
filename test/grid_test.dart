@@ -22,6 +22,12 @@ List<BubbleRow> makeRows(List<List<BubbleColor?>> colors) {
   return rows;
 }
 
+String _boardSig(List<BubbleRow> rows) => rows
+    .map((r) => r.cells
+        .map((b) => b == null ? '.' : b.bubbleColor.index.toString())
+        .join(','))
+    .join(';');
+
 void main() {
   test('row capacities alternate 10 / 9', () {
     expect(GridLayout.capacityFor(false), 10);
@@ -126,5 +132,18 @@ void main() {
         }
       }
     }
+  });
+  test('daily challenge boards are deterministic per seed', () {
+    const seed = 20261007;
+    final a = LevelGenerator.generateSeeded(3, seed);
+    final b = LevelGenerator.generateSeeded(3, seed);
+    expect(_boardSig(a), _boardSig(b));
+    expect(a.length, greaterThan(0));
+  });
+
+  test('different daily seeds give different boards', () {
+    final a = LevelGenerator.generateSeeded(3, 20261007);
+    final b = LevelGenerator.generateSeeded(3, 20261008);
+    expect(_boardSig(a), isNot(_boardSig(b)));
   });
 }

@@ -1,3 +1,4 @@
+import 'dart:math';
 import 'dart:ui' as ui;
 
 import 'package:flame/components.dart';
@@ -48,13 +49,25 @@ class Background extends PositionComponent {
 }
 
 /// Dashed red line: any bubble touching it ends the game.
+/// Pulses urgently when bubbles get close ([threat] set by the game).
 class DangerLine extends Component {
+  bool threat = false;
+  double _t = 0;
+
+  @override
+  void update(double dt) {
+    _t += dt;
+  }
+
   @override
   void render(Canvas canvas) {
     final y = GameConfig.dangerY;
+    final pulse =
+        threat ? 0.6 + 0.4 * sin(_t * 8).abs() : 0.65;
     final paint = Paint()
-      ..color = Colors.redAccent.withValues(alpha: 0.65)
-      ..strokeWidth = 2;
+      ..color = (threat ? const Color(0xFFFF3B3B) : Colors.redAccent)
+          .withValues(alpha: pulse)
+      ..strokeWidth = threat ? 3.5 : 2;
     const dashW = 10.0;
     const gap = 8.0;
     for (var x = 8.0; x < GameConfig.width - 8; x += dashW + gap) {

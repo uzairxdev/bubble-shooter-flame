@@ -83,6 +83,87 @@ class FallingBubble extends Bubble {
   }
 }
 
+/// Confetti rain for level wins and daily challenge victories.
+class ConfettiBurst extends Component {
+  ConfettiBurst({required this.origin});
+
+  final Vector2 origin;
+  static const double duration = 1.8;
+  double _t = 0;
+  final List<_Confetti> _pieces = [];
+
+  static const _colors = [
+    Color(0xFFFF5A5A),
+    Color(0xFF4D9FFF),
+    Color(0xFF58D68D),
+    Color(0xFFFFD23F),
+    Color(0xFFB366FF),
+    Color(0xFFFF9F43),
+    Colors.white,
+  ];
+
+  @override
+  Future<void> onLoad() async {
+    final rng = Random();
+    for (var i = 0; i < 70; i++) {
+      _pieces.add(_Confetti(
+        position: origin +
+            Vector2((rng.nextDouble() - 0.5) * 260, rng.nextDouble() * -40),
+        velocity: Vector2(
+          (rng.nextDouble() - 0.5) * 260,
+          -80 - rng.nextDouble() * 220,
+        ),
+        color: _colors[rng.nextInt(_colors.length)],
+        spin: (rng.nextDouble() - 0.5) * 12,
+        size: 5 + rng.nextDouble() * 6,
+      ));
+    }
+  }
+
+  @override
+  void update(double dt) {
+    _t += dt;
+    for (final p in _pieces) {
+      p.velocity.y += 620 * dt;
+      p.velocity.x *= (1 - 0.6 * dt);
+      p.position += p.velocity * dt;
+      p.angle += p.spin * dt;
+    }
+    if (_t >= duration) removeFromParent();
+  }
+
+  @override
+  void render(Canvas canvas) {
+    final alpha = (1 - (_t / duration)).clamp(0.0, 1.0).toDouble();
+    for (final p in _pieces) {
+      canvas.save();
+      canvas.translate(p.position.x, p.position.y);
+      canvas.rotate(p.angle);
+      canvas.drawRect(
+        Rect.fromCenter(center: Offset.zero, width: p.size, height: p.size * 0.6),
+        Paint()..color = p.color.withValues(alpha: alpha),
+      );
+      canvas.restore();
+    }
+  }
+}
+
+class _Confetti {
+  _Confetti({
+    required this.position,
+    required this.velocity,
+    required this.color,
+    required this.spin,
+    required this.size,
+  });
+  Vector2 position;
+  Vector2 velocity;
+  Color color;
+  double spin;
+  double angle = 0;
+  double size;
+}
+
 /// Floating "+30" style score text.
 class ScorePopup extends Component {
   ScorePopup(this.text, this.origin);

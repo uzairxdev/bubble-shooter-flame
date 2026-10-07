@@ -12,19 +12,45 @@ import 'effects.dart';
 import 'grid.dart';
 import 'level_generator.dart';
 import 'mascot.dart';
+import 'save_data.dart';
+import 'sfx.dart';
 import 'visuals.dart';
+
+/// Which rule set a game session runs under.
+enum GameMode { endless, daily }
 
 /// The full bubble-shooter game: aiming, shooting, snapping to the hex grid,
 /// match-3 popping, dropping detached clusters, row pushes, scoring, levels,
 /// pause / game-over / level-complete flow.
 class BubbleShooterGame extends FlameGame with DragCallbacks, TapCallbacks {
-  BubbleShooterGame()
-      : super(
+  BubbleShooterGame({
+    required this.startLevel,
+    this.mode = GameMode.endless,
+    DateTime? dailyDate,
+  })  : dailyDate = dailyDate ?? DateTime.now(),
+        super(
           camera: CameraComponent.withFixedResolution(
             width: GameConfig.width,
             height: GameConfig.height,
           ),
         );
+
+  /// First level to load (endless mode).
+  final int startLevel;
+
+  /// Endless level progression or the once-per-day challenge board.
+  final GameMode mode;
+
+  /// Calendar day for daily mode.
+  final DateTime dailyDate;
+
+  bool get isDaily => mode == GameMode.daily;
+
+  String get dailyKey => SaveData.dateKey(dailyDate);
+
+  /// Deterministic seed so every player gets the same daily board.
+  int get dailySeed =>
+      dailyDate.year * 10000 + dailyDate.month * 100 + dailyDate.day;
 
   final Vector2 shooterPos = Vector2(GameConfig.width / 2, GameConfig.shooterY);
 
@@ -36,6 +62,27 @@ class BubbleShooterGame extends FlameGame with DragCallbacks, TapCallbacks {
 
   late AimGuide aimGuide;
   late Mascot mascot;
+  late DangerLine _dangerLine;
+
+  // ---- engagement: combo multiplier ----
+  int combo = 0;
+  final ValueNotifier<int> comboNotifier = ValueNotifier(0);
+
+  /// Score multiplier from the current combo (x1 below 2, capped at x8).
+  int get multiplier => combo < 2 ? 1 : min(combo, 8);
+
+  // ---- engagement: screen shake ----
+  double _shakeT = 0;
+  double _shakeDur = 1;
+  double _shakeMag = 0;
+  late Vector2 _camBase;
+
+  /// Kick the camera. [magnitude] in logical pixels.
+  void shake(double magnitude, [double duration = 0.28]) {
+    _shakeMag = magnitude;
+    _shakeDur = duration;
+    _shakeT = duration;
+  }
 
   final Random _rng = Random();
 
@@ -57,9 +104,11 @@ class BubbleShooterGame extends FlameGame with DragCallbacks, TapCallbacks {
   @override
   Future<void> onLoad() async {
     await super.onLoad();
+    _camBase = camera.viewfinder.position.clone();
     final bgImage = await images.load('bg.png');
     world.add(Background(bgImage));
-    world.add(DangerLine());
+    _dangerLine = DangerLine();
+    world.add(_dangerLine);
     world.add(ShooterBase(position: shooterPos.clone()));
     mascot = Mascot(
       sprite: Sprite(await images.load('mascot.png')),
@@ -83,7 +132,7 @@ class BubbleShooterGame extends FlameGame with DragCallbacks, TapCallbacks {
     );
     aimGuide = AimGuide(origin: shooterPos.clone());
     world.add(aimGuide);
-    loadLevel(1);
+    loadLevel(startLevel);
   }
 
   // ---------------- level management ----------------
@@ -92,6 +141,10 @@ class BubbleShooterGame extends FlameGame with DragCallbacks, TapCallbacks {
     level = newLevel;
     _scoreAtLevelStart = score;
     _shotsFired = 0;
+    combo = 0;
+    comboNotifier.value = 0;
+    _shakeT = 0;
+    camera.viewfinder.position.setFrom(_camBase);
     isGameOver = false;
     isLevelComplete = false;
     flyingBubble = null;
@@ -103,7 +156,10 @@ class BubbleShooterGame extends FlameGame with DragCallbacks, TapCallbacks {
     for (final b in world.children.whereType<Bubble>()) {
       b.removeFromParent();
     }
-    rows = LevelGenerator.generate(newLevel);
+    // Daily challenge: one fixed-difficulty board, seeded by calendar date.
+    rows = isDaily
+        ? LevelGenerator.generateSeeded(3, dailySeed)
+        : LevelGenerator.generate(newLevel);
     for (var r = 0; r < rows.length; r++) {
       for (var c = 0; c < rows[r].cells.length; c++) {
         final b = rows[r].cells[c];
@@ -214,6 +270,7 @@ class BubbleShooterGame extends FlameGame with DragCallbacks, TapCallbacks {
       final tmp = currentBubble!.bubbleColor;
       currentBubble!.setColor(nextBubble!.bubbleColor);
       nextBubble!.setColor(tmp);
+      Sfx.play('swap.wav');
     }
   }
 
@@ -275,6 +332,7 @@ class BubbleShooterGame extends FlameGame with DragCallbacks, TapCallbacks {
     flyingBubble = currentBubble;
     currentBubble = null;
     _flyDir.setFrom(aimGuide.direction.normalized());
+    Sfx.play('shoot.wav');
   }
 
   // ---------------- flight & snapping ----------------
@@ -282,6 +340,9 @@ class BubbleShooterGame extends FlameGame with DragCallbacks, TapCallbacks {
   @override
   void update(double dt) {
     super.update(dt);
+    _updateShake(dt);
+    _updateThreat();
+
     final f = flyingBubble;
     if (f == null || isGameOver || isLevelComplete) return;
 
@@ -292,6 +353,36 @@ class BubbleShooterGame extends FlameGame with DragCallbacks, TapCallbacks {
       remaining -= step;
       _moveFlying(f, step);
     }
+  }
+
+  void _updateShake(double dt) {
+    if (_shakeT > 0) {
+      _shakeT -= dt;
+      final k = _shakeMag * (_shakeT / _shakeDur).clamp(0.0, 1.0);
+      camera.viewfinder.position = _camBase +
+          Vector2(
+            (_rng.nextDouble() * 2 - 1) * k,
+            (_rng.nextDouble() * 2 - 1) * k,
+          );
+    } else {
+      camera.viewfinder.position.setFrom(_camBase);
+    }
+  }
+
+  /// Flags the danger line to pulse when bubbles creep close to it.
+  void _updateThreat() {
+    var threat = false;
+    outer:
+    for (final r in rows) {
+      for (final b in r.cells) {
+        if (b != null &&
+            b.position.y + GridLayout.radius >= GameConfig.dangerY - 80) {
+          threat = true;
+          break outer;
+        }
+      }
+    }
+    _dangerLine.threat = threat;
   }
 
   /// Advances the flying bubble one substep. Snaps it into the grid on
@@ -401,7 +492,7 @@ class BubbleShooterGame extends FlameGame with DragCallbacks, TapCallbacks {
         if (b == null) continue;
         rows[r].cells[c] = null;
         world.add(
-          PopEffect(origin: b.position.clone(), color: b.bubbleColor.color),
+          PopEffect(origin: b.position.clone(), color: b.bubbleColor.display),
         );
         b.removeFromParent();
         gained += 10;
@@ -426,10 +517,28 @@ class BubbleShooterGame extends FlameGame with DragCallbacks, TapCallbacks {
     }
 
     if (gained > 0) {
-      score += gained;
+      // Combo: consecutive popping shots raise the score multiplier.
+      combo++;
+      comboNotifier.value = combo;
+      if (combo > SaveData.bestCombo) SaveData.saveBestCombo(combo);
+
+      final mult = multiplier;
+      final total = gained * mult;
+      score += total;
       scoreNotifier.value = score;
-      world.add(ScorePopup('+$gained', GridLayout.cellCenter(row, col, rows)));
-      if (gained >= 40) mascot.celebrate(gained);
+      world.add(ScorePopup(
+        mult > 1 ? '+$total  x$mult' : '+$total',
+        GridLayout.cellCenter(row, col, rows),
+      ));
+      Sfx.play('pop.wav');
+      if (combo == 4) Sfx.play('combo.wav');
+      Sfx.light();
+      if (total >= 40) mascot.celebrate(total);
+      if (total >= 80) shake(7);
+    } else {
+      // A shot that pops nothing breaks the combo.
+      combo = 0;
+      comboNotifier.value = 0;
     }
 
     // 3. Win check.
@@ -485,6 +594,9 @@ class BubbleShooterGame extends FlameGame with DragCallbacks, TapCallbacks {
       );
     }
     rows.insert(0, newRow);
+    Sfx.play('rowdrop.wav');
+    Sfx.medium();
+    shake(3, 0.2);
     for (var r = 0; r < rows.length; r++) {
       for (var c = 0; c < rows[r].cells.length; c++) {
         final b = rows[r].cells[c];
@@ -525,12 +637,32 @@ class BubbleShooterGame extends FlameGame with DragCallbacks, TapCallbacks {
     score += 100 * level;
     scoreNotifier.value = score;
     mascot.celebrate(200);
+    Sfx.play('win.wav');
+    Sfx.medium();
+    world.add(ConfettiBurst(
+      origin: Vector2(GameConfig.width / 2, GameConfig.height * 0.3),
+    ));
+    if (isDaily) {
+      SaveData.saveDaily(dailyKey, score);
+    } else {
+      SaveData.saveBest(level, score);
+      SaveData.saveStars(level, stars);
+      SaveData.unlock(level + 1);
+      SaveData.addWin();
+    }
     overlays.add('levelComplete');
   }
 
   void _lose() {
     isGameOver = true;
     mascot.sad();
+    Sfx.play('lose.wav');
+    Sfx.heavy();
+    if (isDaily) {
+      SaveData.saveDaily(dailyKey, score);
+    } else {
+      SaveData.saveBest(level, score);
+    }
     overlays.add('gameOver');
   }
 }

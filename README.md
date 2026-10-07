@@ -11,6 +11,7 @@ combos and droops when you lose.
 
 ## Features
 
+### Core gameplay
 - Drag anywhere to aim with a dotted trajectory preview (with wall bounces)
 - Release to shoot; bubbles snap into the hexagonal grid
 - Match 3+ same-color connected bubbles to pop them (particle burst + score popup)
@@ -18,9 +19,17 @@ combos and droops when you lose.
 - Tap the shooter to swap current / next bubble
 - A new row pushes down every 5 shots; game over if bubbles cross the red line
 - Endless procedurally generated levels (deterministic, so retry = same board)
-- Animated mascot: idles with a bob, jumps on big pops and wins, droops on loss
 - More colors and rows as levels progress; score, level, stars, pause menu
 - Fully offline, no ads, no tracking
+
+### Engagement pack
+- **Combo multiplier** — consecutive popping shots build x2…x8; a miss resets it
+- **Daily Challenge** — one board per day, identical for every player (date-seeded), with a saved daily best
+- **Level select** — unlock levels by completing them; stars + best score per level
+- **Settings** — sound FX, vibration, and colorblind-friendly palette toggles; reset progress
+- **Original synthesized sound effects** — pop, shoot, combo, win/lose stingers (no audio assets needed)
+- **Game feel** — screen shake on big pops and row drops, pulsing danger line when bubbles creep close, confetti rain on wins, haptic feedback
+- **Animated mascot Poppy** — idles with a bob, jumps on big pops and wins, droops on loss
 
 ## Run it
 
@@ -47,21 +56,24 @@ flutter build appbundle --release
 
 ```
 lib/
-  main.dart                  # app entry + HUD / pause / game-over / level-complete overlays
+  main.dart                  # menu / level select / settings / game screen + HUD overlays
   game/
-    bubble_shooter_game.dart # game loop: aiming, shooting, snapping, scoring, levels
-    bubble.dart              # glossy procedural Bubble component + color palette
+    bubble_shooter_game.dart # game loop + modes, combo, shake, threat, sounds, saves
+    bubble.dart              # glossy procedural Bubble + colorblind-safe palette
     grid.dart                # hex-grid math, flood fill, floating-cluster detection
-    level_generator.dart     # deterministic per-level board generation
+    level_generator.dart     # deterministic per-level + date-seeded daily boards
     aim_guide.dart           # trajectory dots + direction arrow
-    effects.dart             # pop bursts, falling bubbles, score popups
-    visuals.dart             # image-backed background + vignette, danger line, shooter base
+    effects.dart             # pop bursts, falling bubbles, score popups, confetti
+    visuals.dart             # image-backed background, pulsing danger line, shooter base
     mascot.dart              # animated mascot (idle / celebrate / sad states)
+    save_data.dart           # local persistence: scores, stars, unlocks, settings
+    sfx.dart                 # sound + haptics helper respecting settings
 assets/
   images/
     bg.png                   # candy-sky game backdrop (1080x1920)
     mascot.png               # Poppy, transparent background
     icon-1024.png            # master app icon artwork
+  audio/                     # original synthesized SFX (pop, shoot, win, ...)
 assets_src/                  # raw generated sources (not bundled)
 store/                       # Play Store listing pack
   play-listing-en.txt        # title, short + full description
