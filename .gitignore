@@ -1,0 +1,9 @@
+# Flutter/Dart
+.dart_tool/
+build/
+*.log
+# IDE
+.idea/
+.vscode/
+# OS
+.DS_Store
